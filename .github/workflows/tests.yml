@@ -6,6 +6,7 @@ on:
     branches:
       - "main"
       - "beta"
+      - "test/amd-panel-20261017"
   workflow_dispatch:
 
 concurrency:
