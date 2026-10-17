@@ -15,10 +15,16 @@ env:
   CHANNEL: ${{ github.ref_name == 'main' && 'latest' || 'beta' }}
   TAG_PREFIX: ${{ github.ref_name != 'main' && 'beta-' || '' }}
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build-amd64:
     runs-on: ubuntu-24.04
     steps:
+      - name: Lowercase registry owner
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
       - name: Check out the repo
         uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -35,15 +41,20 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
           platforms: linux/amd64
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/web:buildcache-${{ env.TAG_PREFIX }}amd64
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/web:buildcache-${{ env.TAG_PREFIX }}amd64,mode=max
+          cache-from: type=registry,ref=ghcr.io/${{ env.OWNER }}/web:buildcache-${{ env.TAG_PREFIX }}amd64
+          cache-to: type=registry,ref=ghcr.io/${{ env.OWNER }}/web:buildcache-${{ env.TAG_PREFIX }}amd64,mode=max
           tags: |
-            ghcr.io/${{ github.repository_owner }}/web:${{ env.CHANNEL }}-amd64
-            ghcr.io/${{ github.repository_owner }}/web:${{ env.TAG_PREFIX }}${{ github.sha }}-amd64
+            ghcr.io/${{ env.OWNER }}/web:${{ env.CHANNEL }}-amd64
+            ghcr.io/${{ env.OWNER }}/web:${{ env.TAG_PREFIX }}${{ github.sha }}-amd64
   build-arm64:
     runs-on: ubuntu-24.04-arm
     steps:
+      - name: Lowercase registry owner
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
       - name: Check out the repo
         uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -60,18 +71,23 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
           platforms: linux/arm64
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/web:buildcache-${{ env.TAG_PREFIX }}arm64
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/web:buildcache-${{ env.TAG_PREFIX }}arm64,mode=max
+          cache-from: type=registry,ref=ghcr.io/${{ env.OWNER }}/web:buildcache-${{ env.TAG_PREFIX }}arm64
+          cache-to: type=registry,ref=ghcr.io/${{ env.OWNER }}/web:buildcache-${{ env.TAG_PREFIX }}arm64,mode=max
           tags: |
-            ghcr.io/${{ github.repository_owner }}/web:${{ env.CHANNEL }}-arm64
-            ghcr.io/${{ github.repository_owner }}/web:${{ env.TAG_PREFIX }}${{ github.sha }}-arm64
+            ghcr.io/${{ env.OWNER }}/web:${{ env.CHANNEL }}-arm64
+            ghcr.io/${{ env.OWNER }}/web:${{ env.TAG_PREFIX }}${{ github.sha }}-arm64
   merge:
     needs: [build-amd64, build-arm64]
     runs-on: ubuntu-latest
     permissions:
       packages: write
     steps:
+      - name: Lowercase registry owner
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
       - name: Log in to GitHub Docker Registry
         uses: docker/login-action@v3
         with:
@@ -80,44 +96,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Create manifest list and push
         run: |
-          docker buildx imagetools create -t ghcr.io/${{ github.repository_owner }}/web:${{ env.CHANNEL }} \
-            ghcr.io/${{ github.repository_owner }}/web:${{ env.CHANNEL }}-amd64 \
-            ghcr.io/${{ github.repository_owner }}/web:${{ env.CHANNEL }}-arm64
-          docker buildx imagetools create -t ghcr.io/${{ github.repository_owner }}/web:${{ env.TAG_PREFIX }}${{ github.sha }} \
-            ghcr.io/${{ github.repository_owner }}/web:${{ env.TAG_PREFIX }}${{ github.sha }}-amd64 \
-            ghcr.io/${{ github.repository_owner }}/web:${{ env.TAG_PREFIX }}${{ github.sha }}-arm64
-      - name: Prune old images for channel
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const channel = context.ref === 'refs/heads/main' ? 'main' : 'beta';
-            const keep = 9;
-            const owner = context.repo.owner;
-            const pkg = 'web';
-            const isBuildcache = (t) => t.startsWith('buildcache');
-            const isBeta = (t) => t === 'beta' || t.startsWith('beta-');
-            const { data: ownerInfo } = await github.rest.users.getByUsername({ username: owner });
-            const isOrg = ownerInfo.type === 'Organization';
-            const listFn = isOrg
-              ? github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg
-              : github.rest.packages.getAllPackageVersionsForPackageOwnedByUser;
-            const listArgs = isOrg
-              ? { package_type: 'container', package_name: pkg, org: owner, per_page: 100 }
-              : { package_type: 'container', package_name: pkg, username: owner, per_page: 100 };
-            const versions = await github.paginate(listFn, listArgs);
-            const inChannel = versions.filter((v) => {
-              const tags = v.metadata?.container?.tags || [];
-              if (tags.length === 0) return false;
-              if (tags.some(isBuildcache)) return false;
-              const beta = tags.some(isBeta);
-              return channel === 'beta' ? beta : !beta;
-            });
-            inChannel.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-            const toDelete = inChannel.slice(keep);
-            for (const v of toDelete) {
-              await (isOrg
-                ? github.rest.packages.deletePackageVersionForOrg({ package_type: 'container', package_name: pkg, org: owner, package_version_id: v.id })
-                : github.rest.packages.deletePackageVersionForUser({ package_type: 'container', package_name: pkg, username: owner, package_version_id: v.id }));
-              core.info(`deleted ${pkg} ${v.id} [${(v.metadata?.container?.tags || []).join(', ')}]`);
-            }
-            core.info(`channel=${channel} candidates=${inChannel.length} deleted=${toDelete.length}`);
+          docker buildx imagetools create -t ghcr.io/${{ env.OWNER }}/web:${{ env.CHANNEL }} \
+            ghcr.io/${{ env.OWNER }}/web:${{ env.CHANNEL }}-amd64 \
+            ghcr.io/${{ env.OWNER }}/web:${{ env.CHANNEL }}-arm64
+          docker buildx imagetools create -t ghcr.io/${{ env.OWNER }}/web:${{ env.TAG_PREFIX }}${{ github.sha }} \
+            ghcr.io/${{ env.OWNER }}/web:${{ env.TAG_PREFIX }}${{ github.sha }}-amd64 \
+            ghcr.io/${{ env.OWNER }}/web:${{ env.TAG_PREFIX }}${{ github.sha }}-arm64
