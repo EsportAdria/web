@@ -7,6 +7,7 @@ on:
       - "main"
       - "beta"
       - "test/amd-panel-20261017"
+      - "feature/update-source-policy"
   workflow_dispatch:
 
 concurrency:
