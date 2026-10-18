@@ -3,6 +3,12 @@ import { mountSuspended } from "@nuxt/test-utils/runtime";
 import SystemUpdate from "~/layouts/components/SystemUpdate.vue";
 import { useApplicationSettingsStore } from "~/stores/ApplicationSettings";
 
+const { mutate } = vi.hoisted(() => ({ mutate: vi.fn() }));
+vi.mock("@vue/apollo-composable", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@vue/apollo-composable")>()),
+  useApolloClient: () => ({ client: { mutate } }),
+}));
+
 let unmount: (() => void) | undefined;
 afterEach(() => {
   unmount?.();
@@ -49,8 +55,8 @@ describe("source-specific update notice", () => {
   });
   it("runs the selected-source update action through the configured Apollo client", async () => {
     const wrapper = await mountUpdates(JSON.stringify([{ service: "api" }]));
-    const mutate = vi
-      .spyOn((useNuxtApp() as any).$apollo.defaultClient, "mutate")
+    mutate
+      .mockReset()
       .mockResolvedValue({ data: { updateServices: { success: true } } });
     await (wrapper.vm as any).updateServices();
     expect(mutate).toHaveBeenCalledTimes(1);

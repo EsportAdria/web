@@ -1,5 +1,17 @@
 <script lang="ts" setup>
 import { AlertCircle } from "lucide-vue-next";
+import { toast } from "@/components/ui/toast";
+import { generateMutation } from "~/graphql/graphqlGen";
+import { useApolloClient } from "@vue/apollo-composable";
+
+const { client } = useApolloClient();
+const { t } = useI18n();
+async function updateServices() {
+  await client.mutate({
+    mutation: generateMutation({ updateServices: { success: true } }),
+  });
+  toast({ title: t("layouts.system_update.updating") });
+}
 </script>
 
 <template>
@@ -89,19 +101,7 @@ import { AlertCircle } from "lucide-vue-next";
 </template>
 
 <script lang="ts">
-import { toast } from "@/components/ui/toast";
-import { generateMutation } from "~/graphql/graphqlGen";
-import { useApolloClient } from "@vue/apollo-composable";
-
 export default {
-  methods: {
-    async updateServices() {
-      await useApolloClient().client.mutate({
-        mutation: generateMutation({ updateServices: { success: true } }),
-      });
-      toast({ title: this.$t("layouts.system_update.updating") });
-    },
-  },
   computed: {
     updates() {
       const value = useApplicationSettingsStore().settings?.find(
