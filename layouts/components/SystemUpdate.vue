@@ -91,11 +91,12 @@ import { AlertCircle } from "lucide-vue-next";
 <script lang="ts">
 import { toast } from "@/components/ui/toast";
 import { generateMutation } from "~/graphql/graphqlGen";
+import { useApolloClient } from "@vue/apollo-composable";
 
 export default {
   methods: {
     async updateServices() {
-      await this.$apollo.mutate({
+      await useApolloClient().client.mutate({
         mutation: generateMutation({ updateServices: { success: true } }),
       });
       toast({ title: this.$t("layouts.system_update.updating") });

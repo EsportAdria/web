@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mountSuspended } from "@nuxt/test-utils/runtime";
 import SystemUpdate from "~/layouts/components/SystemUpdate.vue";
 import { useApplicationSettingsStore } from "~/stores/ApplicationSettings";
@@ -7,6 +7,7 @@ let unmount: (() => void) | undefined;
 afterEach(() => {
   unmount?.();
   unmount = undefined;
+  vi.restoreAllMocks();
 });
 async function mountUpdates(value: string) {
   useApplicationSettingsStore().settings = [{ name: "updates", value }];
@@ -45,5 +46,13 @@ describe("source-specific update notice", () => {
     const wrapper = await mountUpdates("invalid-json");
     expect((wrapper.vm as any).updates).toEqual([]);
     expect(wrapper.find("button").exists()).toBe(false);
+  });
+  it("runs the selected-source update action through the configured Apollo client", async () => {
+    const wrapper = await mountUpdates(JSON.stringify([{ service: "api" }]));
+    const mutate = vi
+      .spyOn((useNuxtApp() as any).$apollo.defaultClient, "mutate")
+      .mockResolvedValue({ data: { updateServices: { success: true } } });
+    await (wrapper.vm as any).updateServices();
+    expect(mutate).toHaveBeenCalledTimes(1);
   });
 });
